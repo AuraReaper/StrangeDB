@@ -51,13 +51,13 @@
 - [x] Unit tests
 
 ### 1.5 Storage Layer
-- [ ] Create `internal/storage/storage.go` - interface
-- [ ] Create `internal/storage/badger.go` - BadgerDB impl
-- [ ] Key encoding (`d:`, `m:`, `t:` prefixes)
-- [ ] Value encoding (protobuf or JSON)
-- [ ] Basic operations: Get, Set, Delete
-- [ ] Tombstone support
-- [ ] Unit tests
+- [x] Create `internal/storage/storage.go` - interface
+- [x] Create `internal/storage/badger.go` - BadgerDB impl
+- [x] Key encoding (`d:`, `m:`, `t:` prefixes)
+- [x] Value encoding (protobuf or JSON)
+- [x] Basic operations: Get, Set, Delete
+- [x] Tombstone support
+- [x] Unit tests
 
 ### 1.6 HTTP API Server
 - [ ] Create `internal/transport/http/server.go`
