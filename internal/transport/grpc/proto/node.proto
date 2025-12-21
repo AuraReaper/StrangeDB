@@ -1,0 +1,50 @@
+syntax = "proto3";
+
+package strangedb;
+option go_package = "github.com/AuraReaper/strangedb/internal/transport/grpc/proto";
+
+message Timestamp {
+    int64 wall_time = 1;
+    uint32 logical = 2;
+    string node_id = 3;
+}
+
+message Record {
+    string key = 1;
+    bytes value = 2;
+    Timestamp timestamp = 3;
+    bool tombstone = 4;
+}
+
+message GetRequest {
+    string key = 1;
+}
+
+message GetResponse {
+    bool found = 1;
+    Record record = 2;
+}
+
+message SetRequest {
+    Record record = 1;
+}
+
+message SetResponse {
+    bool success = 1;
+    Timestamp timestamp = 2;
+}
+
+message DeleteRequest {
+    string key = 1;
+    Timestamp timestamp = 2;
+}
+
+message DeleteResponse {
+    bool success = 1;
+}
+
+service NodeService {
+    rpc Get(GetRequest) returns (GetResponse);
+    rpc Set(SetRequest) returns (SetResponse);
+    rpc Delete(DeleteRequest) returns (DeleteResponse);
+}

@@ -1,4 +1,4 @@
-.PHONY: build test test-coverage clean run fmt lint docker-build
+.PHONY: build test test-coverage clean run fmt lint docker-build proto
 
 BINARY_NAME := strangedb
 BUILD_DIR := build
@@ -37,3 +37,9 @@ lint:
 # Build Docker image
 docker-build:
 	docker build -t strangedb:latest -f deployments/docker/Dockerfile .
+
+# Build proto
+proto:
+	protoc --go_out=. --go_opt=paths=source_relative \
+		--go-grpc_out=. --go-grpc_opt=paths=source_relative \
+		internal/transport/grpc/proto/node.proto
