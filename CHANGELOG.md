@@ -1,3 +1,18 @@
+## v1.0.0 (2025-12-21)
+
+### Feat
+
+- **coordinator**: implement read/write coordinator
+- **gossip**: implemnet core gossip protocol
+- **grpc**: implement grpc client and server
+- **ring**: implement consistent hash ring
+- **grpc**: protobuf defination and setup
+
+### Refactor
+
+- integrate ring, gossiper, coordinator with node
+- solve endoing issues and typo mistakes
+
 ## v0.2.0 (2025-12-21)
 
 ### Feat
