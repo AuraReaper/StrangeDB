@@ -1,10 +1,12 @@
-# Makefile
+.PHONY: build test test-coverage clean run fmt lint docker-build
 
-.PHONY: build test clean run
+BINARY_NAME := strangedb
+BUILD_DIR := build
 
 # Build the server binary
 build:
-	go build -o build/strangedb ./cmd/strangedb
+	mkdir -p $(BUILD_DIR)
+	go build -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/strangedb
 
 # Run tests
 test:
@@ -17,12 +19,12 @@ test-coverage:
 
 # Clean build artifacts
 clean:
-	rm -rf build/
+	rm -rf $(BUILD_DIR)
 	rm -f coverage.out coverage.html
 
 # Run the server
 run: build
-	./build/strangedb
+	./$(BUILD_DIR)/$(BINARY_NAME)
 
 # Format code
 fmt:
@@ -33,5 +35,5 @@ lint:
 	golangci-lint run ./...
 
 # Build Docker image
-docker:
+docker-build:
 	docker build -t strangedb:latest -f deployments/docker/Dockerfile .
