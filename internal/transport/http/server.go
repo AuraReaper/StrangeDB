@@ -30,6 +30,7 @@ func NewServer(handler *Handler, port int) *Server {
 	api.Get("/kv/:key", handler.GetKey)
 	api.Delete("/kv/:key", handler.DeleteKey)
 	api.Get("/status", handler.Status)
+	api.Get("/cluster/status", handler.ClusterStatus)
 
 	return &Server{
 		app:     app,

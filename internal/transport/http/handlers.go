@@ -1,28 +1,37 @@
 package http
 
 import (
+	"context"
 	"encoding/base64"
 	"time"
 	"unicode/utf8"
 
+	"github.com/AuraReaper/strangedb/internal/coordinator"
+	"github.com/AuraReaper/strangedb/internal/gossip"
 	"github.com/AuraReaper/strangedb/internal/hlc"
+	"github.com/AuraReaper/strangedb/internal/ring"
 	"github.com/AuraReaper/strangedb/internal/storage"
 	"github.com/gofiber/fiber/v2"
 )
 
 type Handler struct {
-	storage   storage.Storage
-	clock     *hlc.Clock
-	nodeID    string
-	startTime time.Time
+	coordinator *coordinator.Coordinator
+	clock       *hlc.Clock
+	nodeID      string
+	startTime   time.Time
+	gossiper    *gossip.Gossiper
+	ring        *ring.ConsistentHashRing
 }
 
-func NewHandler(storage storage.Storage, clock *hlc.Clock, nodeID string) *Handler {
+func NewHandler(coord *coordinator.Coordinator, clock *hlc.Clock, nodeID string,
+	gossiper *gossip.Gossiper, ring *ring.ConsistentHashRing) *Handler {
 	return &Handler{
-		storage:   storage,
-		clock:     clock,
-		nodeID:    nodeID,
-		startTime: time.Now(),
+		coordinator: coord,
+		clock:       clock,
+		nodeID:      nodeID,
+		startTime:   time.Now(),
+		gossiper:    gossiper,
+		ring:        ring,
 	}
 }
 
@@ -50,7 +59,7 @@ func (h *Handler) SetKey(c *fiber.Ctx) error {
 	if req.Encoding == "base64" {
 		value, err = base64.StdEncoding.DecodeString(req.Value)
 		if err != nil {
-			return fiber.NewError(fiber.StatusBadRequest, "invalid nase64 value")
+			return fiber.NewError(fiber.StatusBadRequest, "invalid base64 value")
 		}
 	} else {
 		value = []byte(req.Value)
@@ -64,22 +73,19 @@ func (h *Handler) SetKey(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "value must be base64 encoded")
 	}
 
-	ts := h.clock.Now()
-	record := &storage.Record{
-		Key:       req.Key,
-		Value:     value,
-		Timestamp: ts,
-		Tombstone: false,
-	}
-
-	if err := h.storage.Set(record); err != nil {
+	ctx := context.Background()
+	record, err := h.coordinator.Set(ctx, req.Key, value)
+	if err != nil {
+		if err == coordinator.ErrQuorumNotReached {
+			return fiber.NewError(fiber.StatusServiceUnavailable, "quorum not reached")
+		}
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
 
 	return c.JSON(SetKeyResponse{
 		Success:   true,
 		Key:       req.Key,
-		Timestamp: ts,
+		Timestamp: record.Timestamp,
 	})
 }
 
@@ -97,12 +103,13 @@ func (h *Handler) GetKey(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "key is required")
 	}
 
-	record, err := h.storage.Get(key)
-	if err == storage.ErrKeyNotFound {
+	ctx := context.Background()
+	record, err := h.coordinator.Get(ctx, key)
+	if err == storage.ErrKeyNotFound || err == storage.ErrKeyDeleted {
 		return fiber.NewError(fiber.StatusNotFound, "key not found")
 	}
-	if err == storage.ErrKeyDeleted {
-		return fiber.NewError(fiber.StatusNotFound, "key not found")
+	if err == coordinator.ErrQuorumNotReached {
+		return fiber.NewError(fiber.StatusServiceUnavailable, "quorum not reached")
 	}
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
@@ -134,8 +141,11 @@ func (h *Handler) DeleteKey(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "key is required")
 	}
 
-	ts := h.clock.Now()
-	if err := h.storage.Delete(key, ts); err != nil {
+	ctx := context.Background()
+	if err := h.coordinator.Delete(ctx, key); err != nil {
+		if err == coordinator.ErrQuorumNotReached {
+			return fiber.NewError(fiber.StatusServiceUnavailable, "quorum not reached")
+		}
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
 
@@ -171,5 +181,37 @@ func (h *Handler) Status(c *fiber.Ctx) error {
 		NodeID:  h.nodeID,
 		Status:  "running",
 		Storage: "ok",
+	})
+}
+
+type ClusterStatusResponse struct {
+	NodeID  string       `json:"node_id"`
+	Members []MemberInfo `json:"members"`
+	Total   int          `json:"total"`
+}
+
+type MemberInfo struct {
+	NodeID string `json:"node_id"`
+	Addr   string `json:"addr"`
+	Status string `json:"status"`
+}
+
+func (h *Handler) ClusterStatus(c *fiber.Ctx) error {
+	var members []MemberInfo
+
+	if h.gossiper != nil {
+		for _, addr := range h.gossiper.GetMembers() {
+			members = append(members, MemberInfo{
+				NodeID: addr,
+				Addr:   addr,
+				Status: "alive",
+			})
+		}
+	}
+
+	return c.JSON(ClusterStatusResponse{
+		NodeID:  h.nodeID,
+		Members: members,
+		Total:   len(members),
 	})
 }
