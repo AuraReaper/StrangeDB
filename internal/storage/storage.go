@@ -15,5 +15,5 @@ type Storage interface {
 	Get(key string) (*Record, error)
 	Set(record *Record) error
 	Delete(key string, timestamp hlc.Timestamp) error
-	Exists(key string) bool
+	Exists(key string) (bool, error)
 }
