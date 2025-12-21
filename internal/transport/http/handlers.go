@@ -3,6 +3,7 @@ package http
 import (
 	"encoding/base64"
 	"time"
+	"unicode/utf8"
 
 	"github.com/AuraReaper/strangedb/internal/hlc"
 	"github.com/AuraReaper/strangedb/internal/storage"
@@ -26,8 +27,9 @@ func NewHandler(storage storage.Storage, clock *hlc.Clock, nodeID string) *Handl
 }
 
 type SetKeyRequest struct {
-	Key   string `json:"key"`
-	Value string `json:"value"`
+	Key      string `json:"key"`
+	Value    string `json:"value"`
+	Encoding string `json:"encoding,omitempty"`
 }
 
 type SetKeyResponse struct {
@@ -42,11 +44,22 @@ func (h *Handler) SetKey(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "invalid request body")
 	}
 
+	var value []byte
+	var err error
+
+	if req.Encoding == "base64" {
+		value, err = base64.StdEncoding.DecodeString(req.Value)
+		if err != nil {
+			return fiber.NewError(fiber.StatusBadRequest, "invalid nase64 value")
+		}
+	} else {
+		value = []byte(req.Value)
+	}
+
 	if req.Key == "" {
 		return fiber.NewError(fiber.StatusBadRequest, "key is required")
 	}
 
-	value, err := base64.StdEncoding.DecodeString(req.Value)
 	if err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, "value must be base64 encoded")
 	}
@@ -73,6 +86,7 @@ func (h *Handler) SetKey(c *fiber.Ctx) error {
 type GetKeyResponse struct {
 	Key       string        `json:"key"`
 	Value     string        `json:"value"`
+	ValueRaw  string        `json:"value_base64"`
 	Timestamp hlc.Timestamp `json:"timestamp"`
 	Node      string        `json:"node"`
 }
@@ -94,9 +108,15 @@ func (h *Handler) GetKey(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
 
+	valueStr := string(record.Value)
+	if !utf8.ValidString(valueStr) {
+		valueStr = "[binary data]"
+	}
+
 	return c.JSON(GetKeyResponse{
 		Key:       record.Key,
-		Value:     base64.StdEncoding.EncodeToString(record.Value),
+		Value:     valueStr,
+		ValueRaw:  base64.StdEncoding.EncodeToString(record.Value),
 		Timestamp: record.Timestamp,
 		Node:      h.nodeID,
 	})
@@ -129,7 +149,7 @@ func (h *Handler) DeleteKey(c *fiber.Ctx) error {
 type HealthResponse struct {
 	Status        string `json:"status"`
 	Node          string `json:"node"`
-	UptimeSeconds int64  `josn:"uptime_seconds"`
+	UptimeSeconds int64  `json:"uptime_seconds"`
 }
 
 func (h *Handler) Health(c *fiber.Ctx) error {
@@ -143,7 +163,7 @@ func (h *Handler) Health(c *fiber.Ctx) error {
 type StatusResponse struct {
 	NodeID  string `json:"node_id"`
 	Status  string `json:"status"`
-	Storage string `josn:"storage"`
+	Storage string `json:"storage"`
 }
 
 func (h *Handler) Status(c *fiber.Ctx) error {

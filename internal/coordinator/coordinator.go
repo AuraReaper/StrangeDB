@@ -10,6 +10,7 @@ import (
 	"github.com/AuraReaper/strangedb/internal/storage"
 	grpcTransport "github.com/AuraReaper/strangedb/internal/transport/grpc"
 	pb "github.com/AuraReaper/strangedb/internal/transport/grpc/proto"
+	"github.com/rs/zerolog"
 )
 
 var (
@@ -26,10 +27,11 @@ type Coordinator struct {
 	replicationN int
 	readQuorum   int
 	writeQuorum  int
+	log          zerolog.Logger
 }
 
 func New(nodeURL string, ring *ring.ConsistentHashRing, storage storage.Storage, clock *hlc.Clock,
-	grpcClient *grpcTransport.Client, replicationN, readQuorum, writeQuorum int) *Coordinator {
+	grpcClient *grpcTransport.Client, replicationN, readQuorum, writeQuorum int, log zerolog.Logger) *Coordinator {
 	return &Coordinator{
 		nodeURL:      nodeURL,
 		ring:         ring,
@@ -38,6 +40,7 @@ func New(nodeURL string, ring *ring.ConsistentHashRing, storage storage.Storage,
 		replicationN: replicationN,
 		readQuorum:   readQuorum,
 		writeQuorum:  writeQuorum,
+		log:          log,
 	}
 }
 
@@ -47,12 +50,22 @@ func (c *Coordinator) Get(ctx context.Context, key string) (*storage.Record, err
 		return nil, ErrNoNodesAvailable
 	}
 
-	type result struct {
+	log := c.log.With().
+		Str("key", key).
+		Str("operation", "GET").
+		Strs("replicas", replicas).
+		Int("quorum_required", c.readQuorum).
+		Logger()
+
+	log.Info().Msg("performing get operation")
+
+	type getResult struct {
 		record *storage.Record
 		err    error
+		node   string
 	}
 
-	resultCh := make(chan result, len(replicas))
+	resultCh := make(chan getResult, len(replicas))
 	var wg sync.WaitGroup
 
 	for _, replica := range replicas {
@@ -65,6 +78,9 @@ func (c *Coordinator) Get(ctx context.Context, key string) (*storage.Record, err
 
 			if addr == c.nodeURL {
 				// local read
+				r, err = c.storage.Get(key)
+			} else {
+				// remote read
 				resp, e := c.grpcClient.Get(ctx, addr, key)
 				if e != nil {
 					err = e
@@ -84,9 +100,10 @@ func (c *Coordinator) Get(ctx context.Context, key string) (*storage.Record, err
 				}
 			}
 
-			resultCh <- result{
+			resultCh <- getResult{
 				record: r,
 				err:    err,
+				node:   addr,
 			}
 		}(replica)
 	}
@@ -97,23 +114,34 @@ func (c *Coordinator) Get(ctx context.Context, key string) (*storage.Record, err
 	}()
 
 	var records []*storage.Record
+	var failedNodes []string
 	var successCount int
 
 	for res := range resultCh {
 		if res.err == nil {
 			records = append(records, res.record)
 			successCount++
-		}
-
-		if successCount > c.readQuorum {
-			return c.findLatest(records), nil
+		} else {
+			failedNodes = append(failedNodes, res.node)
 		}
 	}
 
-	if successCount > 0 {
+	log = log.With().
+		Int("acks_received", successCount).
+		Strs("failed_nodes", failedNodes).
+		Logger()
+
+	if successCount >= c.readQuorum {
+		log.Info().Msg("get operation successful")
 		return c.findLatest(records), nil
 	}
 
+	if successCount > 0 {
+		log.Warn().Msg("quorum not reached, but returning partial results")
+		return c.findLatest(records), nil
+	}
+
+	log.Error().Msg("quorum not reached, get operation failed")
 	return nil, ErrQuorumNotReached
 }
 
@@ -123,6 +151,15 @@ func (c *Coordinator) Set(ctx context.Context, key string, value []byte) (*stora
 		return nil, ErrNoNodesAvailable
 	}
 
+	log := c.log.With().
+		Str("key", key).
+		Str("operation", "SET").
+		Strs("replicas", replicas).
+		Int("quorum_required", c.writeQuorum).
+		Logger()
+
+	log.Info().Msg("performing set operation")
+
 	ts := c.clock.Now()
 	record := &storage.Record{
 		Key:       key,
@@ -131,7 +168,12 @@ func (c *Coordinator) Set(ctx context.Context, key string, value []byte) (*stora
 		Tombstone: false,
 	}
 
-	successCh := make(chan bool, len(replicas))
+	type setResult struct {
+		err  error
+		node string
+	}
+
+	resultCh := make(chan setResult, len(replicas))
 	var wg sync.WaitGroup
 
 	for _, replica := range replicas {
@@ -157,30 +199,41 @@ func (c *Coordinator) Set(ctx context.Context, key string, value []byte) (*stora
 				})
 			}
 
-			successCh <- (err == nil)
+			resultCh <- setResult{err: err, node: addr}
 		}(replica)
 	}
 
 	go func() {
 		wg.Wait()
-		close(successCh)
+		close(resultCh)
 	}()
 
-	successCount := 0
-	for success := range successCh {
-		if success {
+	var failedNodes []string
+	var successCount int
+	for res := range resultCh {
+		if res.err == nil {
 			successCount++
-		}
-
-		if successCount > c.writeQuorum {
-			return record, nil
+		} else {
+			failedNodes = append(failedNodes, res.node)
 		}
 	}
 
-	if successCount > 0 {
+	log = log.With().
+		Int("acks_received", successCount).
+		Strs("failed_nodes", failedNodes).
+		Logger()
+
+	if successCount >= c.writeQuorum {
+		log.Info().Msg("set operation successful")
 		return record, nil
 	}
 
+	if successCount > 0 {
+		log.Warn().Msg("quorum not reached, but returning partial results")
+		return record, nil
+	}
+
+	log.Error().Msg("quorum not reached, set operation failed")
 	return nil, ErrQuorumNotReached
 }
 
@@ -190,9 +243,23 @@ func (c *Coordinator) Delete(ctx context.Context, key string) error {
 		return ErrNoNodesAvailable
 	}
 
+	log := c.log.With().
+		Str("key", key).
+		Str("operation", "DELETE").
+		Strs("replicas", replicas).
+		Int("quorum_required", c.writeQuorum).
+		Logger()
+
+	log.Info().Msg("performing delete operation")
+
 	ts := c.clock.Now()
 
-	successCh := make(chan bool, len(replicas))
+	type deleteResult struct {
+		err  error
+		node string
+	}
+
+	resultCh := make(chan deleteResult, len(replicas))
 	var wg sync.WaitGroup
 
 	for _, replica := range replicas {
@@ -213,30 +280,41 @@ func (c *Coordinator) Delete(ctx context.Context, key string) error {
 				})
 			}
 
-			successCh <- (err == nil)
+			resultCh <- deleteResult{err: err, node: addr}
 		}(replica)
 	}
 
 	go func() {
 		wg.Wait()
-		close(successCh)
+		close(resultCh)
 	}()
 
-	successCount := 0
-	for success := range successCh {
-		if success {
+	var failedNodes []string
+	var successCount int
+	for res := range resultCh {
+		if res.err == nil {
 			successCount++
-		}
-
-		if successCount > c.writeQuorum {
-			return nil
+		} else {
+			failedNodes = append(failedNodes, res.node)
 		}
 	}
 
-	if successCount > 0 {
+	log = log.With().
+		Int("acks_received", successCount).
+		Strs("failed_nodes", failedNodes).
+		Logger()
+
+	if successCount >= c.writeQuorum {
+		log.Info().Msg("delete operation successful")
 		return nil
 	}
 
+	if successCount > 0 {
+		log.Warn().Msg("quorum not reached, but returning partial results")
+		return nil
+	}
+
+	log.Error().Msg("quorum not reached, delete operation failed")
 	return ErrQuorumNotReached
 }
 

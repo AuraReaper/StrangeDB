@@ -4,6 +4,7 @@ import (
 	"flag"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -123,7 +124,14 @@ func (c *Config) loadFromFlags() {
 	flag.IntVar(&c.VNodes, "v-nodes", c.VNodes, "virtual nodes")
 	flag.StringVar(&c.LogLevel, "log-level", c.LogLevel, "Log level (debug/info/warn/error)")
 
+	var seeds string
+	flag.StringVar(&seeds, "seeds", "", "comma seperated seed node urls")
+
 	flag.Parse()
+
+	if seeds != "" {
+		c.Seeds = strings.Split(seeds, ",")
+	}
 }
 
 func generateNodeID() string {
