@@ -1,3 +1,13 @@
+## v2.0.0 (2025-12-23)
+
+### Feat
+
+- integrate hinted handoff and antientroppy to the cluster node
+- **storage**: tombstone mangement
+- **antientropy**: implement merkele tree
+- **coordinator**: implement hinted handoff
+- **coordinator**: implement read repair for get
+
 ## v1.0.0 (2025-12-21)
 
 ### Feat
