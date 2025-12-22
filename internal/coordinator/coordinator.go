@@ -74,8 +74,10 @@ func (c *Coordinator) Get(ctx context.Context, key string) (*storage.Record, err
 		go func(addr string) {
 			defer wg.Done()
 
-			var r *storage.Record
-			var err error
+			var (
+				r   *storage.Record
+				err error
+			)
 
 			if addr == c.nodeURL {
 				// local read
@@ -114,13 +116,13 @@ func (c *Coordinator) Get(ctx context.Context, key string) (*storage.Record, err
 		close(resultCh)
 	}()
 
-	var records []*storage.Record
+	responsesByAddr := make(map[string]*storage.Record)
 	var failedNodes []string
-	var successCount int
+	successCount := 0
 
 	for res := range resultCh {
 		if res.err == nil {
-			records = append(records, res.record)
+			responsesByAddr[res.node] = res.record
 			successCount++
 		} else {
 			failedNodes = append(failedNodes, res.node)
@@ -132,18 +134,30 @@ func (c *Coordinator) Get(ctx context.Context, key string) (*storage.Record, err
 		Strs("failed_nodes", failedNodes).
 		Logger()
 
+	if successCount == 0 {
+		log.Error().Msg("get failed: no replicas responded")
+		return nil, ErrQuorumNotReached
+	}
+
+	var records []*storage.Record
+	for _, r := range responsesByAddr {
+		records = append(records, r)
+	}
+	latest := c.findLatest(records)
+
+	// read repair
+	repair := NewReadRepair(c)
+	results := repair.AnalyzeResponses(responsesByAddr, latest)
+	go repair.CheckAndRepair(context.Background(), results)
+
+	// quorum check
 	if successCount >= c.readQuorum {
-		log.Info().Msg("get operation successful")
-		return c.findLatest(records), nil
+		log.Info().Msg("get successful with quorum")
+		return latest, nil
 	}
 
-	if successCount > 0 {
-		log.Warn().Msg("quorum not reached, but returning partial results")
-		return c.findLatest(records), nil
-	}
-
-	log.Error().Msg("quorum not reached, get operation failed")
-	return nil, ErrQuorumNotReached
+	log.Warn().Msg("quorum not reached, returning partial result")
+	return latest, nil
 }
 
 func (c *Coordinator) Set(ctx context.Context, key string, value []byte) (*storage.Record, error) {
