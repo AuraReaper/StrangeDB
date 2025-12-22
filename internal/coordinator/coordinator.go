@@ -28,6 +28,10 @@ type Coordinator struct {
 	readQuorum   int
 	writeQuorum  int
 	log          zerolog.Logger
+
+	// Phase 3: Consistency components
+	readRepair *ReadRepair
+	hintStore  *HintStore
 }
 
 func New(nodeURL string, ring *ring.ConsistentHashRing, storage storage.Storage, clock *hlc.Clock,
@@ -43,6 +47,16 @@ func New(nodeURL string, ring *ring.ConsistentHashRing, storage storage.Storage,
 		writeQuorum:  writeQuorum,
 		log:          log,
 	}
+}
+
+// SetReadRepair sets the read repair component (Phase 3)
+func (c *Coordinator) SetReadRepair(rr *ReadRepair) {
+	c.readRepair = rr
+}
+
+// SetHintStore sets the hint store for hinted handoff (Phase 3)
+func (c *Coordinator) SetHintStore(hs *HintStore) {
+	c.hintStore = hs
 }
 
 func (c *Coordinator) Get(ctx context.Context, key string) (*storage.Record, error) {
@@ -117,15 +131,17 @@ func (c *Coordinator) Get(ctx context.Context, key string) (*storage.Record, err
 	}()
 
 	responsesByAddr := make(map[string]*storage.Record)
+	var records []*storage.Record
 	var failedNodes []string
 	successCount := 0
 
 	for res := range resultCh {
-		if res.err == nil {
+		if res.err == nil && res.record != nil {
 			responsesByAddr[res.node] = res.record
+			records = append(records, res.record)
 			successCount++
 		} else {
-			failedNodes = append(failedNodes, res.node)
+			responsesByAddr[res.node] = nil
 		}
 	}
 
@@ -139,20 +155,17 @@ func (c *Coordinator) Get(ctx context.Context, key string) (*storage.Record, err
 		return nil, ErrQuorumNotReached
 	}
 
-	var records []*storage.Record
-	for _, r := range responsesByAddr {
-		records = append(records, r)
-	}
 	latest := c.findLatest(records)
 
-	// read repair
-	repair := NewReadRepair(c)
-	results := repair.AnalyzeResponses(responsesByAddr, latest)
-	go repair.CheckAndRepair(context.Background(), results)
+	// Trigger read repair asynchronously if configured (Phase 3)
+	if c.readRepair != nil && latest != nil {
+		results := c.readRepair.AnalyzeResponses(responsesByAddr, latest)
+		go c.readRepair.CheckAndRepair(context.Background(), results)
+	}
 
-	// quorum check
+	// Quorum check
 	if successCount >= c.readQuorum {
-		log.Info().Msg("get successful with quorum")
+		log.Info().Msg("get operation successful")
 		return latest, nil
 	}
 

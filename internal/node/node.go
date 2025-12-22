@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/AuraReaper/strangedb/internal/config"
 	"github.com/AuraReaper/strangedb/internal/coordinator"
@@ -20,15 +21,19 @@ import (
 )
 
 type Node struct {
-	cfg         *config.Config
-	storage     storage.Storage
-	clock       *hlc.Clock
-	ring        *ring.ConsistentHashRing
-	gossiper    *gossip.Gossiper
-	coordinator *coordinator.Coordinator
-	grpcServer  *grpc.Server
-	grpcClient  *grpc.Client
-	httpServer  *httpTransport.Server
+	cfg                *config.Config
+	storage            storage.Storage
+	clock              *hlc.Clock
+	ring               *ring.ConsistentHashRing
+	gossiper           *gossip.Gossiper
+	coordinator        *coordinator.Coordinator
+	grpcServer         *grpc.Server
+	grpcClient         *grpc.Client
+	httpServer         *httpTransport.Server
+	readReapair        *coordinator.ReadRepair
+	hintStore          *coordinator.HintStore
+	hintedHandoff      *coordinator.HintedHandoff
+	tombstoneCollector *storage.TombstoneCollector
 }
 
 func New(cfg *config.Config) (*Node, error) {
@@ -67,20 +72,29 @@ func New(cfg *config.Config) (*Node, error) {
 		coordLogger,
 	)
 
+	readReapir := coordinator.NewReadRepair(coord)
+	hintStore := coordinator.NewHintStore(1000, cfg.TombstoneTTL)
 	grpcServer := grpcTransport.NewServer(cfg.GRPCPort, store, clock)
 	handler := httpTransport.NewHandler(coord, clock, cfg.NodeID, gossiper, hashring)
 	httpServer := httpTransport.NewServer(handler, cfg.HTTPPort)
+	hintedHandoff := coordinator.NewHintedHandoff(hintStore, grpcClient, time.Minute)
+	tombstoneCollector := storage.NewTombstoneCollector(store.DB(), cfg.TombstoneTTL, time.Hour)
+
+	coord.SetReadRepair(readReapir)
 
 	return &Node{
-		cfg:         cfg,
-		storage:     store,
-		clock:       clock,
-		ring:        hashring,
-		gossiper:    gossiper,
-		coordinator: coord,
-		grpcServer:  grpcServer,
-		grpcClient:  grpcClient,
-		httpServer:  httpServer,
+		cfg:                cfg,
+		storage:            store,
+		clock:              clock,
+		ring:               hashring,
+		gossiper:           gossiper,
+		coordinator:        coord,
+		grpcServer:         grpcServer,
+		grpcClient:         grpcClient,
+		httpServer:         httpServer,
+		readReapair:        readReapir,
+		hintedHandoff:      hintedHandoff,
+		tombstoneCollector: tombstoneCollector,
 	}, nil
 }
 
@@ -99,6 +113,9 @@ func (n *Node) Start(ctx context.Context) error {
 	n.gossiper.Start()
 	fmt.Println("Gossiper started")
 
+	n.hintedHandoff.Start()
+	n.tombstoneCollector.Start()
+
 	errCh := make(chan error, 1)
 	go func() {
 		errCh <- n.httpServer.Start()
@@ -116,6 +133,8 @@ func (n *Node) Shutdown() error {
 	n.gossiper.Stop()
 	n.grpcServer.Stop()
 	n.grpcClient.Close()
+	n.hintedHandoff.Stop()
+	n.tombstoneCollector.Stop()
 
 	if err := n.httpServer.Shutdown(); err != nil {
 		return err

@@ -131,13 +131,26 @@ func (hs *HintStore) Nodes() []string {
 
 type HintedHandoff struct {
 	store      *HintStore
-	grpcClient grpcTransport.Client
+	grpcClient *grpcTransport.Client
 	interval   time.Duration
 	stopCh     chan struct{}
 }
 
+func NewHintedHandoff(store *HintStore, client *grpcTransport.Client, interval time.Duration) *HintedHandoff {
+	return &HintedHandoff{
+		store:      store,
+		grpcClient: client,
+		interval:   interval,
+		stopCh:     make(chan struct{}),
+	}
+}
+
 func (hh *HintedHandoff) Start() {
 	go hh.replayLoop()
+}
+
+func (hh *HintedHandoff) Stop() {
+	close(hh.stopCh)
 }
 
 func (hh *HintedHandoff) replayOnce() {

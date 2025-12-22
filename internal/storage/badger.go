@@ -158,3 +158,7 @@ func (s *BadgerStorage) GetRaw(key string) (*Record, error) {
 
 	return &record, err
 }
+
+func (s *BadgerStorage) DB() *badger.DB {
+	return s.db
+}
