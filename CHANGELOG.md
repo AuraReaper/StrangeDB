@@ -1,3 +1,25 @@
+## v2.1.0 (2025-12-23)
+
+### Feat
+
+- **transport**: add ring status handler
+- **tui**: implemnt tui
+- **telemetry**: add promethus based metrics
+
+### Fix
+
+- **cli**: added icon splash for  tui
+- deleted logo
+- **cli**: update header
+- **cli**: improve key operations
+- **cli**: fixed package name and cluster auto start
+
+### Refactor
+
+- return error when key not found
+- chnange cli package to main
+- **transport**: integrate tui
+
 ## v2.0.0 (2025-12-23)
 
 ### Feat

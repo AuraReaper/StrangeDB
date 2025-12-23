@@ -1,0 +1,73 @@
+version: '3.8'
+
+services:
+  node1:
+    build: .
+    container_name: strangedb-node1
+    environment:
+      - STRANGE_NODE_ID=node-1
+      - STRANGE_HTTP_PORT=9000
+      - STRANGE_GRPC_PORT=9001
+      - STRANGE_DATA_DIR=/data
+      - STRANGE_SEEDS=node1:9001,node2:9001,node3:9001
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - node1-data:/data
+    networks:
+      - strangedb-net
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  node2:
+    build: .
+    container_name: strangedb-node2
+    environment:
+      - STRANGE_NODE_ID=node-2
+      - STRANGE_HTTP_PORT=9000
+      - STRANGE_GRPC_PORT=9001
+      - STRANGE_DATA_DIR=/data
+      - STRANGE_SEEDS=node1:9001,node2:9001,node3:9001
+    ports:
+      - "9010:9000"
+      - "9011:9001"
+    volumes:
+      - node2-data:/data
+    networks:
+      - strangedb-net
+    depends_on:
+      node1:
+        condition: service_healthy
+
+  node3:
+    build: .
+    container_name: strangedb-node3
+    environment:
+      - STRANGE_NODE_ID=node-3
+      - STRANGE_HTTP_PORT=9000
+      - STRANGE_GRPC_PORT=9001
+      - STRANGE_DATA_DIR=/data
+      - STRANGE_SEEDS=node1:9001,node2:9001,node3:9001
+    ports:
+      - "9020:9000"
+      - "9021:9001"
+    volumes:
+      - node3-data:/data
+    networks:
+      - strangedb-net
+    depends_on:
+      node1:
+        condition: service_healthy
+
+networks:
+  strangedb-net:
+    driver: bridge
+
+volumes:
+  node1-data:
+  node2-data:
+  node3-data:
