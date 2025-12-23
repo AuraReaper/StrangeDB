@@ -215,3 +215,6 @@ func (h *Handler) ClusterStatus(c *fiber.Ctx) error {
 		Total:   len(members),
 	})
 }
+
+func (h *Handler) RingStatus(c *fiber.Ctx) error {
+}

@@ -2,7 +2,9 @@ package http
 
 import (
 	"fmt"
+	"time"
 
+	"github.com/AuraReaper/strangedb/internal/telemetry"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/adaptor"
 	"github.com/gofiber/fiber/v2/middleware/logger"
@@ -24,6 +26,7 @@ func NewServer(handler *Handler, port int) *Server {
 
 	app.Use(recover.New())
 	app.Use(logger.New())
+	app.Use(metricsMiddleware())
 
 	app.Get("/health", handler.Health)
 
@@ -34,6 +37,8 @@ func NewServer(handler *Handler, port int) *Server {
 	api.Get("/status", handler.Status)
 	api.Get("/cluster/status", handler.ClusterStatus)
 	app.Get("/metrics", adaptor.HTTPHandler(promhttp.Handler()))
+	app.Get("/cluster/status", handler.ClusterStatus)
+	app.Get("/cluster/ring", handler.RingStatus)
 
 	return &Server{
 		app:     app,
@@ -59,4 +64,22 @@ func customErrorHandler(c *fiber.Ctx, err error) error {
 	return c.Status(code).JSON(fiber.Map{
 		"error": err.Error(),
 	})
+}
+
+func metricsMiddleware() fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		start := time.Now()
+
+		err := c.Next()
+
+		duration := time.Since(start).Seconds()
+		status := "success"
+		if err != nil {
+			status = "error"
+		}
+
+		telemetry.RecordRequest(c.Method(), status, duration)
+
+		return err
+	}
 }
