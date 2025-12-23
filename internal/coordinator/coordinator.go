@@ -165,11 +165,18 @@ func (c *Coordinator) Get(ctx context.Context, key string) (*storage.Record, err
 
 	// Quorum check
 	if successCount >= c.readQuorum {
+		if latest == nil {
+			log.Info().Msg("key not found")
+			return nil, storage.ErrKeyNotFound
+		}
 		log.Info().Msg("get operation successful")
 		return latest, nil
 	}
 
 	log.Warn().Msg("quorum not reached, returning partial result")
+	if latest == nil {
+		return nil, storage.ErrKeyNotFound
+	}
 	return latest, nil
 }
 
