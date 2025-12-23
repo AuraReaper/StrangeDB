@@ -29,8 +29,8 @@ var (
 	})
 
 	StorageBytes = promauto.NewGauge(prometheus.GaugeOpts{
-		Namespace: "strangedb_storage_bytes",
-		Help:      "Storage size in bytes",
+		Name: "strangedb_storage_bytes",
+		Help: "Storage size in bytes",
 	})
 
 	// cluster metrics
