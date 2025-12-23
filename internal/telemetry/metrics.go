@@ -11,7 +11,7 @@ var (
 		Name: "strangedb_requests_total",
 		Help: "Total number of requests",
 	},
-		[]string{"operation", "ststus"},
+		[]string{"operation", "status"},
 	)
 
 	RequestDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{

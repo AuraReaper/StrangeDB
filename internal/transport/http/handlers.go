@@ -217,4 +217,9 @@ func (h *Handler) ClusterStatus(c *fiber.Ctx) error {
 }
 
 func (h *Handler) RingStatus(c *fiber.Ctx) error {
+	nodes := h.ring.GetNodes()
+	return c.JSON(fiber.Map{
+		"nodes":       nodes,
+		"total_nodes": len(nodes),
+	})
 }
