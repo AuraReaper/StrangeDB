@@ -7,6 +7,7 @@ import (
 	"github.com/AuraReaper/strangedb/internal/telemetry"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/adaptor"
+	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -26,6 +27,11 @@ func NewServer(handler *Handler, port int) *Server {
 
 	app.Use(recover.New())
 	app.Use(logger.New())
+	app.Use(cors.New(cors.Config{
+		AllowOrigins: "*",
+		AllowMethods: "GET,POST,PUT,DELETE,OPTIONS",
+		AllowHeaders: "Content-Type,Authorization",
+	}))
 	app.Use(metricsMiddleware())
 
 	app.Get("/health", handler.Health)
@@ -39,6 +45,8 @@ func NewServer(handler *Handler, port int) *Server {
 	app.Get("/metrics", adaptor.HTTPHandler(promhttp.Handler()))
 	app.Get("/cluster/status", handler.ClusterStatus)
 	app.Get("/cluster/ring", handler.RingStatus)
+
+	api.Get("/keys", handler.ListKeys)
 
 	return &Server{
 		app:     app,

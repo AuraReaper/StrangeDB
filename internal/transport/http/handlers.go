@@ -2,9 +2,9 @@ package http
 
 import (
 	"context"
-	"encoding/base64"
+	"sort"
+	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/AuraReaper/strangedb/internal/coordinator"
 	"github.com/AuraReaper/strangedb/internal/gossip"
@@ -36,9 +36,8 @@ func NewHandler(coord *coordinator.Coordinator, clock *hlc.Clock, nodeID string,
 }
 
 type SetKeyRequest struct {
-	Key      string `json:"key"`
-	Value    string `json:"value"`
-	Encoding string `json:"encoding,omitempty"`
+	Key   string `json:"key"`
+	Value string `json:"value"`
 }
 
 type SetKeyResponse struct {
@@ -53,28 +52,12 @@ func (h *Handler) SetKey(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "invalid request body")
 	}
 
-	var value []byte
-	var err error
-
-	if req.Encoding == "base64" {
-		value, err = base64.StdEncoding.DecodeString(req.Value)
-		if err != nil {
-			return fiber.NewError(fiber.StatusBadRequest, "invalid base64 value")
-		}
-	} else {
-		value = []byte(req.Value)
-	}
-
 	if req.Key == "" {
 		return fiber.NewError(fiber.StatusBadRequest, "key is required")
 	}
 
-	if err != nil {
-		return fiber.NewError(fiber.StatusBadRequest, "value must be base64 encoded")
-	}
-
 	ctx := context.Background()
-	record, err := h.coordinator.Set(ctx, req.Key, value)
+	record, err := h.coordinator.Set(ctx, req.Key, []byte(req.Value))
 	if err != nil {
 		if err == coordinator.ErrQuorumNotReached {
 			return fiber.NewError(fiber.StatusServiceUnavailable, "quorum not reached")
@@ -92,7 +75,6 @@ func (h *Handler) SetKey(c *fiber.Ctx) error {
 type GetKeyResponse struct {
 	Key       string        `json:"key"`
 	Value     string        `json:"value"`
-	ValueRaw  string        `json:"value_base64"`
 	Timestamp hlc.Timestamp `json:"timestamp"`
 	Node      string        `json:"node"`
 }
@@ -115,15 +97,9 @@ func (h *Handler) GetKey(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
 	}
 
-	valueStr := string(record.Value)
-	if !utf8.ValidString(valueStr) {
-		valueStr = "[binary data]"
-	}
-
 	return c.JSON(GetKeyResponse{
 		Key:       record.Key,
-		Value:     valueStr,
-		ValueRaw:  base64.StdEncoding.EncodeToString(record.Value),
+		Value:     string(record.Value),
 		Timestamp: record.Timestamp,
 		Node:      h.nodeID,
 	})
@@ -221,5 +197,71 @@ func (h *Handler) RingStatus(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{
 		"nodes":       nodes,
 		"total_nodes": len(nodes),
+	})
+}
+
+type ListKeysResponse struct {
+	Keys  []KeyInfo `json:"keys"`
+	Total int       `json:"total"`
+}
+
+type KeyInfo struct {
+	Key       string        `json:"key"`
+	Value     string        `json:"value"`
+	Timestamp hlc.Timestamp `json:"timestamp"`
+}
+
+// returns all keys, optionally filtered by prefix and sorted
+func (h *Handler) ListKeys(c *fiber.Ctx) error {
+	prefix := c.Query("prefix", "")
+	limitStr := c.Query("limit", "100")
+	sortOrder := c.Query("sort", "asc") // asc or desc
+
+	limit := 100
+	if l, err := c.ParamsInt("limit"); err == nil && l > 0 {
+		limit = l
+	}
+	// Try query param
+	if limitStr != "" {
+		if l := c.QueryInt("limit", 100); l > 0 {
+			limit = l
+		}
+	}
+
+	// Get records from local storage
+	records, err := h.coordinator.Storage().List(prefix, 0) // 0 = no limit, we sort then apply limit
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+	}
+
+	// Sort by key
+	if sortOrder == "desc" {
+		sort.Slice(records, func(i, j int) bool {
+			return strings.Compare(records[i].Key, records[j].Key) > 0
+		})
+	} else {
+		sort.Slice(records, func(i, j int) bool {
+			return strings.Compare(records[i].Key, records[j].Key) < 0
+		})
+	}
+
+	// Apply limit
+	if limit > 0 && len(records) > limit {
+		records = records[:limit]
+	}
+
+	// Convert to response
+	keys := make([]KeyInfo, len(records))
+	for i, r := range records {
+		keys[i] = KeyInfo{
+			Key:       r.Key,
+			Value:     string(r.Value),
+			Timestamp: r.Timestamp,
+		}
+	}
+
+	return c.JSON(ListKeysResponse{
+		Keys:  keys,
+		Total: len(keys),
 	})
 }
