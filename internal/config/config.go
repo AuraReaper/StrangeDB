@@ -118,14 +118,14 @@ func (c *Config) loadFromFlags() {
 	flag.IntVar(&c.HTTPPort, "http-port", c.HTTPPort, "HTTP API port")
 	flag.IntVar(&c.GRPCPort, "grpc-port", c.GRPCPort, "gRPC inter-node port")
 	flag.StringVar(&c.DataDir, "data-dir", c.DataDir, "Data directory")
-	flag.IntVar(&c.ReplicationN, "n", c.ReplicationN, "repliaction factor, N")
+	flag.IntVar(&c.ReplicationN, "n", c.ReplicationN, "replication factors, N")
 	flag.IntVar(&c.ReadQuorum, "r", c.ReadQuorum, "read quorum")
 	flag.IntVar(&c.WriteQuorum, "w", c.WriteQuorum, "write quorum")
 	flag.IntVar(&c.VNodes, "v-nodes", c.VNodes, "virtual nodes")
 	flag.StringVar(&c.LogLevel, "log-level", c.LogLevel, "Log level (debug/info/warn/error)")
 
 	var seeds string
-	flag.StringVar(&seeds, "seeds", "", "comma seperated seed node urls")
+	flag.StringVar(&seeds, "seeds", "", "comma seperated seed node URLs")
 
 	flag.Parse()
 
