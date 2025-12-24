@@ -162,3 +162,44 @@ func (s *BadgerStorage) GetRaw(key string) (*Record, error) {
 func (s *BadgerStorage) DB() *badger.DB {
 	return s.db
 }
+
+// returns all non-tombstoned records with optional prefix filter
+func (s *BadgerStorage) List(prefix string, limit int) ([]*Record, error) {
+	var records []*Record
+
+	err := s.db.View(func(txn *badger.Txn) error {
+		opts := badger.DefaultIteratorOptions
+		opts.PrefetchSize = 100
+		it := txn.NewIterator(opts)
+		defer it.Close()
+
+		seekPrefix := []byte(dataPrefix + prefix)
+		count := 0
+
+		for it.Seek(seekPrefix); it.ValidForPrefix([]byte(dataPrefix)); it.Next() {
+			if limit > 0 && count >= limit {
+				break
+			}
+
+			item := it.Item()
+			var record Record
+			err := item.Value(func(val []byte) error {
+				return json.Unmarshal(val, &record)
+			})
+			if err != nil {
+				continue
+			}
+
+			// Skip tombstones
+			if record.Tombstone {
+				continue
+			}
+
+			records = append(records, &record)
+			count++
+		}
+		return nil
+	})
+
+	return records, err
+}
