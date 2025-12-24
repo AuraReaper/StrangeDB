@@ -11,7 +11,7 @@ import (
 func main() {
 	cfg := config.Load()
 
-	fmt.Printf("Starting StrageDB node %s on port %d\n", cfg.NodeID, cfg.HTTPPort)
+	fmt.Printf("Starting StrangeDB node %s on port %d\n", cfg.NodeID, cfg.HTTPPort)
 
 	if err := node.Run(cfg); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
