@@ -28,10 +28,8 @@ type Coordinator struct {
 	readQuorum   int
 	writeQuorum  int
 	log          zerolog.Logger
-
-	// Phase 3: Consistency components
-	readRepair *ReadRepair
-	hintStore  *HintStore
+	readRepair   *ReadRepair
+	hintStore    *HintStore
 }
 
 func New(nodeURL string, ring *ring.ConsistentHashRing, storage storage.Storage, clock *hlc.Clock,
@@ -49,14 +47,16 @@ func New(nodeURL string, ring *ring.ConsistentHashRing, storage storage.Storage,
 	}
 }
 
-// SetReadRepair sets the read repair component (Phase 3)
 func (c *Coordinator) SetReadRepair(rr *ReadRepair) {
 	c.readRepair = rr
 }
 
-// SetHintStore sets the hint store for hinted handoff (Phase 3)
 func (c *Coordinator) SetHintStore(hs *HintStore) {
 	c.hintStore = hs
+}
+
+func (c *Coordinator) Storage() storage.Storage {
+	return c.storage
 }
 
 func (c *Coordinator) Get(ctx context.Context, key string) (*storage.Record, error) {
@@ -157,7 +157,6 @@ func (c *Coordinator) Get(ctx context.Context, key string) (*storage.Record, err
 
 	latest := c.findLatest(records)
 
-	// Trigger read repair asynchronously if configured (Phase 3)
 	if c.readRepair != nil && latest != nil {
 		results := c.readRepair.AnalyzeResponses(responsesByAddr, latest)
 		go c.readRepair.CheckAndRepair(context.Background(), results)
