@@ -15,7 +15,7 @@ var (
 	)
 
 	RequestDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
-		Name:    "stragedb_request_duration_seconds",
+		Name:    "strangedb_request_duration_seconds",
 		Help:    "Request duration in seconds",
 		Buckets: prometheus.DefBuckets,
 	},
@@ -25,7 +25,7 @@ var (
 	//storage metrics
 	KeysTotal = promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "strangedb_keys_total",
-		Help: "Total number of keys strored",
+		Help: "Total number of keys stored",
 	})
 
 	StorageBytes = promauto.NewGauge(prometheus.GaugeOpts{
@@ -36,7 +36,7 @@ var (
 	// cluster metrics
 	NodesTotal = promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "strangedb_nodes_total",
-		Help: "Total number of nodes i cluster",
+		Help: "Total number of nodes in cluster",
 	})
 
 	GossipMessagesTotal = promauto.NewCounterVec(prometheus.CounterOpts{
